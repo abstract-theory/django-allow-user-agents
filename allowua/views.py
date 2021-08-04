@@ -2,7 +2,10 @@ from django.views.generic import TemplateView
 from django.http import HttpResponse
 
 # Below is a list of bots that you might consider either allowing or
-# blocking. By default, Bing and Google are the bots allowed.
+# blocking.
+#
+# Some common are listed bots is given below. The list is current as of
+# April 2020.
 #
 # 'google', # Very well known search engine
 # 'bing', # As of Oct. 2018, Bing is reported to have %36 of US market share
@@ -15,58 +18,66 @@ from django.http import HttpResponse
 # 'msnbot', # MS is reported to still use this sometimes
 # 'naver', # Korean search engine
 # 'daum', # Korean search engine
-# 'qwant', # American privacy search engine
+# 'qwant', # American search engine
 # 'exabot', # French search engine
 # 'qihoo', # Chinese search engine
 # 'soso', # Chinese search engine
 # 'sogou', # Chinese search engine
-# 'alexa', # used for the Alexa rankings
-
-USER_AGENT_SUBSTRINGS = ['google', 'bing',]
+# 'ia_archiver', # Alexa's crawlers, used for analytics
 
 
-class AllowUA():
+def check_agents(request, ua):
+    user_agent = request.META.get('HTTP_USER_AGENT').lower()
+    isWhiteListed = False
+    for s in map(str.lower, ua):
+        if s in user_agent:
+            isWhiteListed = True
+            break
+    return isWhiteListed
 
-    def __init__(self, user_agents = USER_AGENT_SUBSTRINGS):            
-        # list of key words for user agents that you might wish to either allow or block.
-        self.user_agent_substrings = user_agents
-                
-    def is_client_whitelisted(self, request):        
-        user_agent = request.META.get('HTTP_USER_AGENT').lower()        
-        isWhiteListed = False
-        for s in self.user_agent_substrings:
-            if s in user_agent:
-                isWhiteListed = True
-                break                    
-        return isWhiteListed
 
-    def __call__(self, viewFunc):        
-        def f(request, *args, **kwargs):                    
-            if self.is_client_whitelisted(request):
+def restrict_user_agents(user_agent_ids=()):
+    def real_decorator(viewFunc):
+        def wrapper(request, *args, **kwargs):
+            if check_agents(request, user_agent_ids):
                 result = viewFunc(request, *args, **kwargs)
             else:
                 result = HttpResponse(status=404)
             return result
-        return f
+        return wrapper
+    return real_decorator
 
 
-class AllowUAView(TemplateView):    
-    
-    user_agents = []
-    
-    def __init__(self, *args, user_agents = USER_AGENT_SUBSTRINGS, **kwargs):    
-        self.aua = AllowUA(user_agents)
+class RestrictUserAgentsView(TemplateView):
+    '''
+    Note: the "get" function also handles HEAD requests
+    '''
+
+    user_agent_ids = []
+
+    def __init__(self, *args, user_agent_ids=(), **kwargs):
+        self.user_agent_ids = user_agent_ids
         super().__init__(*args, **kwargs)
 
-
-    # request methods supported by "as_view(...)":
     def get(self, request, *args, **kwargs):
-        '''
-        Note: the "get" function also handles HEAD requests
-        '''
-        if self.aua.is_client_whitelisted(request):            
-            return super().get(self, request, *args, **kwargs)            
-        else:            
+        if check_agents(request, self.user_agent_ids):
+            return super().get(self, request, *args, **kwargs)
+        else:
             return HttpResponse(status=404)
 
-    
+
+class TagUserAgentsView(TemplateView):
+    '''
+    Note: the "get" function also handles HEAD requests
+    '''
+
+    user_agent_ids = ()
+
+    def __init__(self, *args, user_agent_ids=(), **kwargs):
+        self.user_agent_ids = user_agent_ids
+        super().__init__(*args, **kwargs)
+
+    def get(self, request, *args, **kwargs):
+        isWl = check_agents(request, self.user_agent_ids)
+        return super().get(self, request, *args, user_agent_tagged=isWl, **kwargs)
+
